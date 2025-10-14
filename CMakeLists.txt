@@ -251,8 +251,12 @@ if(EMSCRIPTEN)
 endif()
 
 # PhysicsFS for virtual file system and archive support.
-set(PHYSFS_BUILD_SHARED $<NOT:${CF_FRAMEWORK_STATIC}> CACHE BOOL "Build PhysFS as shared library")
 set(PHYSFS_BUILD_STATIC ${CF_FRAMEWORK_STATIC} CACHE BOOL "Build PhysFS as static library")
+if(CF_FRAMEWORK_STATIC)
+	set(PHYSFS_BUILD_SHARED OFF CACHE BOOL "")
+else()
+	set(PHYSFS_BUILD_SHARED ON CACHE BOOL "")
+endif()
 set(PHYSFS_BUILD_TEST OFF CACHE BOOL "Do not build PhysFS tests.")
 set(PHYSFS_BUILD_DOCS OFF CACHE BOOL "Do not build PhysFS docs.")
 FetchContent_Declare(
@@ -353,14 +357,17 @@ if(NOT EMSCRIPTEN) # Emscripten provides it's own SDL3.
 	# Just don't build the shared library at all, it's not needed.
 	set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
 	set(SDL_STATIC ${CF_FRAMEWORK_STATIC} CACHE BOOL "Build SDL as a static library")
-	set(SDL_SHARED $<NOT:${CF_FRAMEWORK_STATIC}> CACHE BOOL "Do not build SDL as a shared library")
+	if(CF_FRAMEWORK_STATIC)
+		set(SDL_SHARED OFF CACHE BOOL "")
+	else()
+		set(SDL_SHARED ON CACHE BOOL "")
+	endif()
 	set(SDL_TEST_LIBRARY OFF CACHE BOOL "Do not build SDL tests")
 	set(SDL_EXAMPLES OFF CACHE BOOL "Do not build SDL examples")
 	FetchContent_Declare(
 		SDL3
 		URL https://github.com/libsdl-org/SDL/releases/download/release-${SDL_REQUIRED_VERSION}/SDL3-${SDL_REQUIRED_VERSION}.zip
 		DOWNLOAD_EXTRACT_TIMESTAMP ON
-		CMAKE_ARGS -DSDL_SHARED=$<NOT:${CF_FRAMEWORK_STATIC}> -DSDL_STATIC=${CF_FRAMEWORK_STATIC} -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
 	)
 	FetchContent_MakeAvailable(SDL3)
 	if(CF_FRAMEWORK_STATIC)
@@ -373,20 +380,44 @@ endif()
 
 if (CF_RUNTIME_SHADER_COMPILATION OR CF_CUTE_SHADERC)
 	# glslang for shader compilation.
-	set(GLSLANG_TESTS_DEFAULT OFF CACHE BOOL "Do not build glslang tests.")
+	set(BUILD_EXTERNAL OFF CACHE BOOL "Do not build external")
+	set(GLSLANG_TESTS OFF CACHE BOOL "Do not build glslang tests.")
 	set(BUILD_SHARED_LIBS OFF CACHE BOOL "Do not build glslang as a shared lib.")
 	set(ENABLE_OPT ON CACHE BOOL "Enable optimization.")
 	set(SKIP_SPIRV_TOOLS_INSTALL OFF CACHE BOOL "Don't install the SPIR-V Tools as they are built.")
-	set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "Don't build any SPIR-V Tools executables/tests.")
-	set(SPIRV_WERROR OFF CACHE BOOL "Turn off SPIR-V warnings as error.")
 	set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "Turn off some standalone binary tools for glslang.")
 	set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "Disable installation option for glslang.")
-	find_package(Python3 REQUIRED)
+	set(ENABLE_SPVREMAPPER OFF CACHE BOOL "Do not build SPVRemapper")
+	set(ENABLE_HLSL OFF CACHE BOOL "Do not support HLSL")
+	set(ENABLE_RTTI OFF CACHE BOOL "Do not enable RTTI")
+	set(ENABLE_EXEPTIONS OFF CACHE BOOL "Do not enable exception")
+	set(ALLOW_EXTERNAL_SPIRV_TOOLS ON CACHE BOOL "Use external SPIRV-Tools")
+	set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "Don't build any SPIR-V Tools executables/tests.")
+	set(SPIRV_WERROR OFF CACHE BOOL "Turn off SPIR-V warnings as error.")
+	set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "")
+	set(SPIRV_TOOLS_USE_MIMALLOC OFF CACHE BOOL "")
+
+	FetchContent_Declare(
+		SPIRV-Headers
+		GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+		GIT_TAG        01e0577914a75a2569c846778c2f93aa8e6feddd
+		EXCLUDE_FROM_ALL
+	)
+	FetchContent_MakeAvailable(SPIRV-Headers)
+
+	FetchContent_Declare(
+		SPIRV-Tools
+		GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Tools.git
+		GIT_TAG        7f2d9ee926f98fc77a3ed1e1e0f113b8c9c49458
+		EXCLUDE_FROM_ALL
+	)
+	FetchContent_MakeAvailable(SPIRV-Tools)
+
 	FetchContent_Declare(
 		glslang
-		URL https://github.com/KhronosGroup/glslang/archive/refs/tags/15.4.0.zip
+		URL https://github.com/KhronosGroup/glslang/archive/refs/tags/16.0.0.zip
 		DOWNLOAD_EXTRACT_TIMESTAMP ON
-		PATCH_COMMAND ${Python3_EXECUTABLE} update_glslang_sources.py
+		EXCLUDE_FROM_ALL
 	)
 	FetchContent_MakeAvailable(glslang)
 
@@ -444,7 +475,11 @@ if(NOT EMSCRIPTEN)  # SPIRV-Cross is not needed for web.
 	set(SPIRV_CROSS_SKIP_INSTALL OFF CACHE BOOL "Turn off install targets in SPIRV-Cross.")
 	set(SPIRV_CROSS_ENABLE_UTIL OFF CACHE BOOL "Turn off utils in SPIRV-Cross.")
 	set(SPIRV_CROSS_ENABLE_CPP OFF CACHE BOOL "Turn off CPP target support in SPIRV-Cross.")
-	set(SPIRV_CROSS_FORCE_PIC $<NOT:${CF_FRAMEWORK_STATIC}> CACHE BOOL "Force position-independent code for all targets.")
+	if(CF_FRAMEWORK_STATIC)
+		set(SPIRV_CROSS_FORCE_PIC OFF CACHE BOOL "Force position-independent code for all targets.")
+	else()
+		set(SPIRV_CROSS_FORCE_PIC ON CACHE BOOL "Force position-independent code for all targets.")
+	endif()
 	if (WINDOWS)
 		set(SPIRV_CROSS_ENABLE_MSL OFF CACHE BOOL "Turn off MSL support when on windows.")
 	endif()
