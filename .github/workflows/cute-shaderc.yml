@@ -86,3 +86,9 @@ jobs:
       with:
         name: cute-shaderc
         path: build/cute-shaderc.exe
+
+  test:
+    needs: build  # Wait for build to complete
+    uses: ./.github/workflows/test-cute-shaderc.yml
+    with:
+      artifact_name: cute-shaderc
