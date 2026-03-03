@@ -1,0 +1,78 @@
+name: Build with Cosmopolitan
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Update package repo
+      run: |
+        sudo apt-get update -qq
+
+    - name: Install dependencies
+      uses: daaku/gh-action-apt-install@v4
+      with:
+        packages: build-essential git make pkg-config
+
+    - name: Install cosmocc
+      uses: bjia56/setup-cosmocc@main
+      with:
+        version: "4.0.2"
+
+    - name: Setup CMake
+      uses: ./.github/actions/setup-cmake
+
+    - name: Setup CCache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: cute-shaderc-cosmo
+
+    - name: Configure CMake
+      run: |
+        cmake \
+          -B build \
+          -G Ninja \
+          -DCMAKE_C_COMPILER_ID=Clang \
+          -DCMAKE_CXX_COMPILER_ID=Clang \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_C_FLAGS="-mclang -mtiny" \
+          -DCMAKE_CXX_FLAGS="-mclang -mtiny" \
+          -DCMAKE_SKIP_RPATH=ON \
+          -DCMAKE_C_COMPILER=cosmocc \
+          -DCMAKE_CXX_COMPILER=cosmoc++ \
+          -DCMAKE_AR="cosmoar" \
+          -UCMAKE_RANLIB \
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          -DSDL_ALSA=OFF \
+          -DSDL_JACK=OFF \
+          -DSDL_KMSDRM=OFF \
+          -DSDL_OPENGL=OFF \
+          -DSDL_OPENGLES=OFF \
+          -DSDL_PIPEWIRE=OFF \
+          -DSDL_PULSEAUDIO=OFF \
+          -DSDL_RENDER=OFF \
+          -DSDL_SNDIO=OFF \
+          -DSDL_WAYLAND=OFF \
+          -DSDL_X11=OFF \
+          -DENABLE_PCH=OFF \
+          -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
+          -DOPENGL_INCLUDE_DIR=/usr/include \
+          -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
+          -DOPENGL_gl_LIBRARY=/usr/lib/x86_64-linux-gnu/libOpenGL.so \
+          -Dcrypto_LIBRARY=/usr/lib/x86_64-linux-gnu/libcrypto.so \
+          -DOPENSSL_CRYPTO_LIBRARY=/usr/lib/x86_64-linux-gnu/libcrypto.so \
+          -DSDL_UNIX_CONSOLE_BUILD=ON
+
+    - name: Build
+      run: cmake --build build --target cute-shaderc
+
+    - name: Rename
+      run: mv build/cute-shaderc build/cute-shaderc.exe
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: cute-shaderc
+        path: build/cute-shaderc.exe
