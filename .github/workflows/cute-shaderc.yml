@@ -28,6 +28,18 @@ jobs:
       with:
         key: cute-shaderc-cosmo
 
+    - name: Inject ccache wrapper into cosmocc
+      run: |
+        # Find cosmocc installation
+        COSMOCC_PATH=$(which cosmocc)
+        COSMOCC_REAL=$(readlink -f "$COSMOCC_PATH")
+        COSMOCC_DIR=$(dirname "$COSMOCC_REAL")
+        LIBEXEC_DIR=$(dirname "$COSMOCC_DIR")/libexec
+        # Backup original clang
+        mv "$LIBEXEC_DIR/clang" "$LIBEXEC_DIR/clang.orig"
+        cp .github/bin/clang "$LIBEXEC_DIR/clang"
+        chmod +x "$LIBEXEC_DIR/clang"
+
     - name: Configure CMake
       run: |
         cmake \
@@ -35,8 +47,6 @@ jobs:
           -G Ninja \
           -DCMAKE_C_COMPILER_ID=Clang \
           -DCMAKE_CXX_COMPILER_ID=Clang \
-          -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -DCMAKE_C_FLAGS="-mclang -mtiny" \
           -DCMAKE_CXX_FLAGS="-mclang -mtiny" \
           -DCMAKE_SKIP_RPATH=ON \

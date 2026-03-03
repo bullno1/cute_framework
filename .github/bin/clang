@@ -1,0 +1,18 @@
+#!/bin/sh -e
+
+# Find cosmocc
+COSMOCC_PATH=$(which cosmocc)
+if [ -z "$COSMOCC_PATH" ]; then
+	echo "Error: cosmocc not found in PATH" >&2
+	exit 1
+fi
+
+# Resolve symlinks to get real path
+COSMOCC_REAL=$(readlink -f "$COSMOCC_PATH")
+
+# Derive libexec path
+COSMOCC_DIR=$(dirname "$COSMOCC_REAL")
+LIBEXEC_DIR=$(dirname "$COSMOCC_DIR")/libexec
+CLANG_ORIG="$LIBEXEC_DIR/clang.orig"
+# Execute ccache with clang.orig and all arguments properly quoted
+exec ccache "$CLANG_ORIG" "$@"
