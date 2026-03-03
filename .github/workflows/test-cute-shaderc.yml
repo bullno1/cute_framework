@@ -1,0 +1,44 @@
+name: Test cute-shaderc
+on:
+  workflow_run:
+    workflows: ["Build cute-shaderc with Cosmopolitan"]
+    types:
+      - completed
+
+jobs:
+  test:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.workflow_run.head_sha }}
+
+    - name: Download cute-shaderc.exe
+      uses: actions/download-artifact@v4
+      with:
+        name: cute-shaderc.exe
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        run-id: ${{ github.event.workflow_run.id }}
+
+    - name: Make executable (Unix)
+      if: runner.os != 'Windows'
+      run: chmod +x cute-shaderc.exe
+
+    - name: Run cute-shaderc.exe
+      run: |
+        ./cute-shaderc.exe \
+          -type=draw \
+          -varname=fluid_sim_shd \
+          -oheader=fluid_sim_shd.h \
+          samples/fluid_sim_data/fluid_sim.shd
+      shell: bash
+
+    - name: Display generated header
+      run: cat fluid_sim_shd.h
+      shell: bash

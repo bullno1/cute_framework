@@ -1,4 +1,4 @@
-name: Build with Cosmopolitan
+name: Build cute-shaderc with Cosmopolitan
 on: [push, pull_request]
 jobs:
   build:
