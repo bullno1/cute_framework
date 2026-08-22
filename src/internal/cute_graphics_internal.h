@@ -228,6 +228,8 @@ CF_INLINE bool s_is_depth(CF_PixelFormat format)
 
 void cf_load_internal_shaders();
 void cf_unload_internal_shaders();
+// Releases this file's static containers at app teardown, before the allocator can go away.
+void cf_graphics_shutdown();
 CF_Shader cf_make_draw_shader_internal(const char* path);
 CF_Shader cf_make_draw_shader_from_source_internal(const char* src, const char* src_name = NULL);
 CF_Shader cf_make_draw_shader_from_bytecode_internal(CF_ShaderBytecode bytecode);

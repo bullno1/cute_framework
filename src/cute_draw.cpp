@@ -1107,6 +1107,9 @@ void cf_make_draw()
 	s_draw->add_cmd();
 }
 
+// Frees the vector-path scratch array; see s_path_shutdown near the path code below.
+static void s_path_shutdown();
+
 void cf_destroy_draw()
 {
 	cf_destroy_draw3d();
@@ -1129,6 +1132,7 @@ void cf_destroy_draw()
 	cf_destroy_texture(s_draw->white_texture);
 	atlas_cache_term(&s_draw->atlas_cache);
 	cf_destroy_material(s_draw->material);
+	s_path_shutdown();
 	s_draw->~CF_Draw();
 	CF_FREE(s_draw);
 }
@@ -2901,6 +2905,17 @@ static bool s_path_building = false;
 static bool s_path_contour_open = false;
 static v2 s_path_pen;
 static v2 s_path_start;
+
+// The scratch above is a file-scope Array, so its destructor would otherwise run at process exit --
+// after `cf_destroy_app`, and in a hot-reload setup after the module owning the allocator has been
+// unloaded, which turns the free into a crash. `cf_destroy_draw` calls this instead, while the
+// allocator is still alive.
+static void s_path_shutdown()
+{
+	s_path_cps = Array<CF_V2>();
+	s_path_building = false;
+	s_path_contour_open = false;
+}
 
 static void s_path_close_contour()
 {

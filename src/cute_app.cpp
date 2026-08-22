@@ -427,6 +427,7 @@ void cf_destroy_app()
 #endif
 		}
 	}
+	cf_graphics_shutdown();
 	cf_destroy_aseprite_cache();
 	cf_destroy_custom_sprite_cache();
 	cs_shutdown();

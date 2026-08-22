@@ -620,6 +620,19 @@ bool cf_recompile_draw_pipelines(const char* custom_shapes_src)
 	return true;
 }
 
+// Frees the file-scope containers in this file. Their destructors would otherwise run at process
+// exit, long after `cf_destroy_app`. In a hot-reload setup the module owning the allocator is
+// unloaded by then, so the frees would call through a dangling pointer and crash.
+void cf_graphics_shutdown()
+{
+	// String has no free() of its own; steal the buffer out and free that.
+	char* error = s_shader_compile_error.steal();
+	sfree(error);
+	s_compute_shader_paths = Map<const char*>();
+	s_graphics_shader_paths = Map<CF_GraphicsShaderPaths>();
+	s_shader_dir_cache = Map<CF_ShaderDirCache>();
+}
+
 void cf_unload_internal_shaders()
 {
 	if (app->draw_shader.id) cf_destroy_shader_internal(app->draw_shader);
