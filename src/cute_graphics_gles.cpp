@@ -908,6 +908,14 @@ void cf_gles_begin_frame()
 	++g_ctx.frame_index;
 }
 
+#ifdef __EMSCRIPTEN__
+
+EM_ASYNC_JS(double, cf_gles_wait_vsync, (), {
+    return await new Promise(resolve => requestAnimationFrame(resolve));
+});
+
+#endif
+
 void cf_gles_end_frame()
 {
 	int i = (int)(g_ctx.frame_index % 4);
@@ -917,6 +925,9 @@ void cf_gles_end_frame()
 	g_ctx.frame_fence_done[i] = false;
 	glFlush();
 	SDL_GL_SwapWindow(g_ctx.window);
+#ifdef __EMSCRIPTEN__
+	cf_gles_wait_vsync();
+#endif
 }
 
 void cf_gles_blit_canvas(CF_Canvas canvas_handle)
