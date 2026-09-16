@@ -8,6 +8,7 @@
 #ifdef CF_EMSCRIPTEN
 #	include <GLES3/gl3.h>
 #	include <GLES3/gl2ext.h>
+#	include <webgl/webgl2.h>
 #else
 #	include <glad/glad.h>
 #endif
@@ -221,6 +222,9 @@ struct CF_GL_Canvas
 	bool has_clear_color[CF_MAX_CANVAS_TARGETS];
 	CF_Color clear_color[CF_MAX_CANVAS_TARGETS];
 	bool has_clear_depth_stencil;
+	// Per color target: a readback of it succeeded once, so its (format, type) pair is
+	// accepted and later readbacks skip the glGetError round trips (synchronous on WebGL).
+	bool readback_verified[CF_MAX_CANVAS_TARGETS];
 	float clear_depth;
 	uint32_t clear_stencil;
 
@@ -2792,14 +2796,22 @@ void cf_gles_current_canvas_size(int* w, int* h)
 	}
 }
 
-// Synchronous readback: glReadPixels straight into a CPU buffer. CF renders canvases
-// with row 0 at the top (the window blit un-flips), so GL's bottom-up read order
-// already yields top-down rows -- no flip here.
+// Asynchronous readback: glReadPixels into a pixel pack buffer, fenced, and polled without
+// blocking. The bytes cross to the CPU only in cf_readback_data, once the fence signaled, so
+// nothing here waits on the GPU. CF renders canvases with row 0 at the top (the window blit
+// un-flips), so GL's bottom-up read order already yields top-down rows.
 struct CF_GL_Readback
 {
-	void* data;
+	GLuint pbo;
+	GLsync fence;
+	bool ready;
 	int size;
 };
+
+#ifdef CF_EMSCRIPTEN
+// WebGL cannot map a buffer for reading. Instead it uses getBufferSubData.
+extern "C" void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void* data);
+#endif
 
 // Bytes per texel of a target's own (format, type) layout; 0 for pairs the readback
 // does not handle (packed and compressed types).
@@ -2836,12 +2848,19 @@ CF_Readback cf_gles_canvas_readback2(CF_Canvas canvas, int index)
 	int texel_size = s_readback_texel_size(format, type);
 	if (texel_size == 0) return { 0 };
 
+	// glGetError is a synchronous round trip to the GPU process on WebGL at
+	// milliseconds each regardless of payload.
+	// The pair check only needs to pass once per target.
+	bool verify = !c->readback_verified[index] || g_ctx.debug;
+
 	GLuint prev_fbo = g_ctx.fbo;
 	s_bind_framebuffer(c->fbo);
 	// Only errors from the read sequence below are of interest, the read buffer
 	// selection included (a failed one silently reads target 0): drain whatever was
 	// pending first. Bounded, since a lost context reports itself on every call.
-	for (int i = 0; i < 8 && glGetError() != GL_NO_ERROR; ++i) { }
+	if (verify) {
+		for (int i = 0; i < 8 && glGetError() != GL_NO_ERROR; ++i) { }
+	}
 	if (index != 0) glReadBuffer(GL_COLOR_ATTACHMENT0 + (GLenum)index);
 
 	// GLES only accepts a few (format, type) pairs per framebuffer: the guaranteed one
@@ -2849,15 +2868,23 @@ CF_Readback cf_gles_canvas_readback2(CF_Canvas canvas, int index)
 	// (UNSIGNED_)INT -- plus one the implementation picks, usually the target's own
 	// layout. Anything else is an INVALID_OPERATION that leaves the buffer untouched,
 	// which the error check below turns into a failed readback.
-	CF_GL_Readback* rb = (CF_GL_Readback*)CF_ALLOC(sizeof(CF_GL_Readback));
+	CF_GL_Readback* rb = (CF_GL_Readback*)CF_CALLOC(sizeof(CF_GL_Readback));
 	rb->size = w * h * texel_size;
-	rb->data = CF_ALLOC(rb->size);
+	glGenBuffers(1, &rb->pbo);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, rb->pbo);
+	glBufferData(GL_PIXEL_PACK_BUFFER, rb->size, NULL, GL_STREAM_READ);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
-	glReadPixels(0, 0, w, h, format, type, rb->data);
-	if (glGetError() != GL_NO_ERROR) {
-		CF_FREE(rb->data);
+	glReadPixels(0, 0, w, h, format, type, (void*)0);  // Read into the start of the buffer
+	GLenum err = verify ? glGetError() : GL_NO_ERROR;
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+	if (err != GL_NO_ERROR) {
+		glDeleteBuffers(1, &rb->pbo);
 		CF_FREE(rb);
 		rb = NULL;
+	} else {
+		c->readback_verified[index] = true;
+		rb->fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+		glFlush();
 	}
 
 	if (index != 0) glReadBuffer(GL_COLOR_ATTACHMENT0);
@@ -2873,15 +2900,38 @@ CF_Readback cf_gles_canvas_readback(CF_Canvas canvas)
 
 bool cf_gles_readback_ready(CF_Readback readback)
 {
-	return readback.id != 0;
+	CF_GL_Readback* rb = (CF_GL_Readback*)(uintptr_t)readback.id;
+	if (!rb) return false;
+	if (rb->ready) return true;
+	GLenum status = s_poll_fence(rb->fence);
+	if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) return false;
+	glDeleteSync(rb->fence);
+	rb->fence = 0;
+	rb->ready = true;
+	return true;
 }
 
 int cf_gles_readback_data(CF_Readback readback, void* data, int size)
 {
 	CF_GL_Readback* rb = (CF_GL_Readback*)(uintptr_t)readback.id;
-	if (!rb) return 0;
+	if (!rb || !rb->ready) return 0;
 	int n = size < rb->size ? size : rb->size;
-	CF_MEMCPY(data, rb->data, n);
+
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, rb->pbo);
+	// WebGL 2 has to use glGetBufferSubData while GLES 3 has to map the buffer
+#ifdef CF_EMSCRIPTEN
+	glGetBufferSubData(GL_PIXEL_PACK_BUFFER, 0, n, data);
+#else
+	void* mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, n, GL_MAP_READ_BIT);
+	if (mapped) {
+		CF_MEMCPY(data, mapped, n);
+		glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+	} else {
+		n = 0;
+	}
+#endif
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+	CF_POLL_OPENGL_ERROR();
 	return n;
 }
 
@@ -2895,7 +2945,8 @@ void cf_gles_destroy_readback(CF_Readback readback)
 {
 	CF_GL_Readback* rb = (CF_GL_Readback*)(uintptr_t)readback.id;
 	if (!rb) return;
-	CF_FREE(rb->data);
+	glDeleteSync(rb->fence);
+	glDeleteBuffers(1, &rb->pbo);
 	CF_FREE(rb);
 }
 
