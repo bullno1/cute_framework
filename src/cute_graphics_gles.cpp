@@ -119,7 +119,15 @@ static inline GLenum s_wrap(CF_StencilOp op)
 	}
 }
 
-#define RING_BUFFER_CAPACITY 3
+// Upper bound on staging slots per buffer. Slots are created on demand and a ready one is
+// always preferred, so only a buffer updated more times per frame than the GPU has finished
+// ever grows past three. Each update within one frame needs its own slot: with three, the
+// fourth upload to a mesh in a frame stalls the CPU until the GPU catches up (s_force_slot).
+// A second pass over the same sprites -- a picking or shadow pass -- doubles the uploads to
+// the shared sprite quad and hit that stall every frame on WebGL, where the wait is a polled
+// round trip of several milliseconds. Eight covers a few extra passes; frames that never need
+// more still allocate three.
+#define RING_BUFFER_CAPACITY 8
 
 struct CF_GL_PixelFormatInfo
 {
@@ -543,7 +551,20 @@ static inline CF_GL_Slot* s_force_slot(CF_GL_Ring* ring, uint32_t frame, int* ou
 	if (!s_slot_ready(slot)) {
 		// Block the CPU until the GPU is done with this slot.
 		// If you're seeing this on the hot-path of a profile or flame-graph it means you're GPU bound.
-		if (slot.in_flight_frame == g_ctx.frame_index && !slot.fence) {
+		bool same_frame = slot.in_flight_frame == g_ctx.frame_index;
+		static bool warned = false;
+		if (!warned) {
+			warned = true;
+			fprintf(stderr,
+				"cute_graphics_gles: staging ring exhausted at frame %u (capacity %d): %s. "
+				"The CPU now waits for the GPU; on WebGL this is a polled round trip of milliseconds. "
+				"Reported once.\n",
+				g_ctx.frame_index, RING_BUFFER_CAPACITY,
+				same_frame
+					? "a buffer was updated more times this frame than there are slots"
+					: "slots from earlier frames are still in flight (GPU bound)");
+		}
+		if (same_frame && !slot.fence) {
 			// Reused within one frame: no covering frame fence exists yet, so raise one now.
 			slot.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 			glFlush();
