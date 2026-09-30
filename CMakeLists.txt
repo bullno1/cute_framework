@@ -331,7 +331,7 @@ if(EMSCRIPTEN)
 		-sASYNCIFY_REMOVE=@${CMAKE_CURRENT_SOURCE_DIR}/cmake/asyncify_remove.txt
 	)
 
-	target_compile_options(cute PRIVATE -O1 -fno-rtti -fno-exceptions)
+	target_compile_options(cute PRIVATE -O3 -fno-rtti -fno-exceptions)
 endif()
 
 if(ANDROID)
